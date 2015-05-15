@@ -1,3 +1,54 @@
+/*
+ * ####################################### DECILING - JAVA CODE #############################################
+ * ### Author(s) : Shivam Gupta, Sumit Khanna															  ###
+ * ### Project : Intellibid (Sub-part :: Deciling / Weights Update)										  ###
+ * ### DOC !																							  ###
+ * ###																									  ###
+ * ### Intent :-																						  ###	
+ * ###																									  ###
+ * ### To Read in the following :																		  ###
+ * ### 1. From Saiku :																					  ###
+ * ### 1.1 CUBE : RTBFunnel | Data : Zbids, NZbids, Impr, Avg Bid Value									  ###
+ * ### 1.2 CUBE : Metrics	| Data : Impr,Click,Conversions,ConversionsOneDay,Revenue,Cost,ePPC,ePPA	  ###
+ * ### NOTE : All these values are aggregated at the following level :-									  ###
+ * ### Campaign,Publisher,Payout Type, Exp(A23)															  ###
+ * ###																									  ###
+ * ### 2. From s3://datascience																			  ###
+ * ### 2.1 decile.INI																					  ###
+ * ### 2.2 auto-cons-conf.INI																			  ###
+ * ### NOTE : 																							  ###
+ * ### decile.INI : contains MAXBID / SRC / DECILE CUTOFF / DECILE WEIGHTS @ publ-plat-adv-exp level	  ###
+ * ### auto-cons-conf.INI : contains Adv level attribs, as a JSON format								  ###
+ * ###																									  ###
+ * ### Process :-																						  ###
+ * ###																									  ###
+ * ### 1// Read the decile.INI file, line-by-line														  ###
+ * ### First rows are about the advids enlisted, just record keep them									  ###
+ * ### Then, parse the key values, one by one, and insert them as a branch in the base tree, 			  ###
+ * ### Wherein, the tree is basically a Hierarchy of PUBLISHER,PLATFORMS,CAMPAIGNS						  ###
+ * ### Insert along with the leaf node, the attribs like MAXBID / SRC / DECILE-CUTOFF / DECILE-WEIGHTS	  ###
+ * ### 																									  ###
+ * ### 2// Read the cons-conf.INI file, line-by-line													  ###
+ * ### stringify these jsons, and then record-keep these properties to be used later in the logic		  ###
+ * ### 																									  ###
+ * ### 3// Read the csvs procured fro Saiku 															  ###
+ * ### Those csvs are conversions from jsons obtained from the saiku python scripts 					  ###
+ * ### Simply put, the process is to keep a query with your folder in pivot								  ###
+ * ### Then using a python utility script, rerun results from saiku, results being returned ads JSONs	  ###
+ * ### Parse the csv much the same way we did for 1// and 2//											  ###
+ * ###																									  ###
+ * ### 4// Apply a recursive code, to build the tree bottom up, with parents acquiring values aggregated  ###
+ * ### at their children. We herein, apply different logic for populating the Maps of the parent node 	  ###
+ * ### from their children.																				  ###
+ * ###																									  ###
+ * ### 5// Update the weights , either hardcoded, or the logic build-up									  ###
+ * ### 6// print the updated weights and records to an output file										  ###
+ * ### 																									  ###
+ * ### THAT'S IT!!!																						  ###
+ * ##########################################################################################################
+ * 
+ */
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -10,42 +61,114 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class decileTreeBuilder {
-	private static String decilefile;// filename for intellibid-decile.ini
-	private static String advInfoFile;// filename for auto-const-conf.ini
-
-	private static String bidscsvfile;// the bids.json -> csv converted file
-	private static String costcsvfile;// the cost.json -> csv converted file
-	
-	private static String outputfile; // the output file
-	private static BufferedWriter outwriter = null; // the output writer
-
-	private static BufferedReader decileReader = null;// reads the intellibid-decile.ini
-	private static BufferedReader advInfoReader = null;//reads the auto-const-conf.ini
-
-	private static BufferedReader bidsSaikuReader = null; // bids.json reader
-	private static BufferedReader costSaikuReader = null; // cost.json reader
-
-	private static HashMap<String, String> decileMap = new HashMap<String,String>();//storing decile weights/cutoffs
-	private static HashMap<String, ArrayList<String>> advidsMap = new HashMap<String,ArrayList<String>>();//storing advids list
+	/*
+	 * filename for intellibid-decile.ini
+	 */
+	private static String decilefile;
+	/*
+	 * filename for auto-const-conf.ini
+	 */
+	private static String advInfoFile;
+	/*
+	 * the bids.json -> csv converted file
+	 */
+	private static String bidscsvfile;
+	/*
+	 * the cost.json -> csv converted file
+	 */
+	private static String costcsvfile;
+	/*
+	 * the output file
+	 */
+	private static String outputfile;
+	/*
+	 * the output writer
+	 */
+	private static BufferedWriter outwriter = null;
+	/*
+	 * reads the intellibid-decile.ini
+	 */
+	private static BufferedReader decileReader = null;
+	/*
+	 * reads the auto-const-conf.ini
+	 */
+	private static BufferedReader advInfoReader = null;
+	/*
+	 * bids.csv reader
+	 */
+	private static BufferedReader bidsSaikuReader = null;
+	/*
+	 * cost.csv reader
+	 */
+	private static BufferedReader costSaikuReader = null; 
+	/*
+	 * storing decile weights/cutoffs
+	 */
+	private static HashMap<String, String> decileMap = new HashMap<String,String>();
+	/*
+	 * storing advids list
+	 */
+	private static HashMap<String, ArrayList<String>> advidsMap = new HashMap<String,ArrayList<String>>();
 
 	private static HashMap<String, HashMap<String,String>> advInfoMap = new HashMap<String,HashMap<String,String>>();//donot know where it gets used, maybe logic
-
-	private static TreeNode root = null;// the main tree
+	/*
+	 * the main tree
+	 */
+	private static TreeNode root = null;
 	private static ArrayList<String> iniKeyHash = new ArrayList<String>();
+	/*
+	 * flip-flop to chose the map
+	 */
+	enum decileMaps { advidsMap,decileMap };
+	/*
+	 * main function
+	 * the only keys to be written in the decile INI file
+	 * populate the files - decilefile & advInfoFile
+	 */
+	
+	/*
+	 * ########################################################################################################
+	 * ### 	WALKTHROUGH ! 																					###
+	 * ###  main()																							###
+	 * ###  --> initializeWriteKeys()																		###
+	 * ###		add MAXBIDS,DECILE_SRC, CTR_CVR_DECILE_CUTOFFS,CTR_CVR_DECILE_WEIGHTS						###
+	 * ###  --> buildInfoMap()																				###
+	 * ###		decilefile																					###
+	 * ###      -- advidsmap																				###
+	 * ###		-- decilemap																				###
+	 * ###      advinfofile																					###
+	 * ###		--> createMapKV // for JSON parsing 														###
+	 * ###  --> buildTree()																					###
+	 * ###      create root																					###
+	 * ### 		--> insertBranch()																			###
+	 * ###			rootCrawl																				###
+	 * ###			existsNode()																			###
+	 * ###			populate the branch's hashmap															###
+	 * ###	-->	getbids()																					###
+	 * ###	--> getcosts()																					###
+	 * ###  --> updateWeights()																				###
+	 * ###	--> printINI()																					###
+	 * ########################################################################################################
+	 */ 
+	
+	public static void main(String[] args) {
+		intiliazeWriteKeys();
+		buildInfoMap(); 
 
-	enum decileMaps { advidsMap,decileMap };// flip-flop to chose the map
+		/*Now that we have read the weights and advInfo files :- 
+		 *Let us costruct the tree .1
+		 *And stick data onto it   .2
+		 */
+		
+		/*
+		 * the tree has been built, the stage has been set
+		 */
+		buildTree();
 
-	public static void main(String[] args) { // main function
-		intiliazeWriteKeys();// the only keys to be written in the decile INI file
-		buildInfoMap(); // populate the files - decilefile & advInfoFile
-
-		//Now that we have read the weights and advInfo files :- 
-		//Let us costruct the tree .1
-		//And stick data onto it   .2
-
-		buildTree(); // the tree has been built, the stage has been set
-
-		// next intent is to either build/grow the same tree, or populate a different tree with bids and costs SAIKU data
+		/*
+		 * next intent is to either build/grow the same tree,
+		 * or populate a different tree with bids and costs SAIKU data
+		 */
 		getBids();
 		getCosts();
 
@@ -562,12 +685,12 @@ public class decileTreeBuilder {
 				}
 			}
 		} catch (IOException e) {
-			System.out.println("Problems reading decilefile");
+			System.out.println("[EXCEPTION]Problems reading decilefile");
 		} finally {
 			try {
 				if (decileReader != null)decileReader.close();
 			} catch (IOException ex) {
-				System.out.println("Problems closing decilefile");
+				System.out.println("[EXCEPTION]Problems closing decilefile");
 			}
 		}
 		try {
@@ -590,12 +713,12 @@ public class decileTreeBuilder {
 				}
 			}
 		} catch (IOException e) {
-			System.out.println("Problems reading advInfofile");
+			System.out.println("[EXCEPTION]Problems reading advInfofile");
 		} finally {
 			try {
 				if (decileReader != null)advInfoReader.close();
 			} catch (IOException ex) {
-				System.out.println("Problems closing advInfofile");
+				System.out.println("[EXCEPTION]Problems closing advInfofile");
 			}
 		}
 	}
