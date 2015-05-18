@@ -194,27 +194,58 @@ public class decileTreeBuilder {
         }
         else if(rootnode.curr == 0)
         {
-            String weights = rootnode.attribs.get("CTR_CVR_DECILE_WEIGHT");
+            String weights = null; //rootnode.attribs.get("CTR_CVR_DECILE_CUTOFF");
             String src = rootnode.attribs.get("DECILE_SRC");
 
             String wts_ctr = null;
             String wts_cvr = null;
-
-            if(src.equalsIgnoreCase("CTR_CVR"))
+            if(src == null)
             {
-                String[] wts = weights.split("_");
-                wts_ctr = wts[0];
-                wts_cvr = wts[1];
+                if(rootnode.attribs.containsKey("CTR_CVR_DECILE_CUTOFF"))
+                {
+                    weights = rootnode.attribs.get("CTR_CVR_DECILE_CUTOFF");
+                    String[] wts = weights.split("_");
+                    wts_ctr = wts[0];
+                    wts_cvr = wts[1];
+                    System.out.println("orig ctr: "+wts_ctr);
+                    System.out.println("orig cvr: "+wts_cvr);
+                }
+                else if(rootnode.attribs.containsKey("CTR_DECILE_CUTOFF"))
+                {
+                    weights = rootnode.attribs.get("CTR_DECILE_CUTOFF");
+                    wts_ctr = new String(weights);
+                    System.out.println("orig ctr: "+wts_ctr);
+                }
+                else if(rootnode.attribs.containsKey("CVR_DECILE_CUTOFF"))
+                {
+                    weights = rootnode.attribs.get("CVR_DECILE_CUTOFF");
+                    wts_cvr = new String(weights);
+                    System.out.println("orig cvr: "+wts_cvr);
+                }
             }
-            else if(src.equalsIgnoreCase("CTR"))
-            {
-                wts_ctr = new String(weights);
+            else{
+                if(src.equalsIgnoreCase("CTR_CVR"))
+                {
+                    weights = rootnode.attribs.get("CTR_CVR_DECILE_CUTOFF");
+                    String[] wts = weights.split("_");
+                    wts_ctr = wts[0];
+                    wts_cvr = wts[1];
+                    System.out.println("orig ctr: "+wts_ctr);
+                    System.out.println("orig cvr: "+wts_cvr);
+                }
+                else if(src.equalsIgnoreCase("CTR"))
+                {
+                    weights = rootnode.attribs.get("CTR_DECILE_CUTOFF");
+                    wts_ctr = new String(weights);
+                    System.out.println("orig ctr: "+wts_ctr);
+                }
+                else if(src.equalsIgnoreCase("CVR"))
+                {
+                    weights = rootnode.attribs.get("CVR_DECILE_CUTOFF");
+                    wts_cvr = new String(weights);
+                    System.out.println("orig cvr: "+wts_cvr);
+                }
             }
-            else if(src.equalsIgnoreCase("CVR"))
-            {
-                wts_cvr = new String(weights);
-            }
-
             String updatedWeightsCTR = "";
             String updatedWeightsCVR = "";
 
@@ -223,6 +254,8 @@ public class decileTreeBuilder {
                 ArrayList<Double> cvr_weightlist = new ArrayList<Double>();
                 for(String wt : weights_cvr)
                 {
+                    //System.out.println("eh wait: "+wt);
+                    //System.out.println("eh 1.1*wt: "+1.1*Double.parseDouble(wt));
                     cvr_weightlist.add(1.1*Double.parseDouble(wt));
                 }
                 for(double d : cvr_weightlist)
@@ -231,8 +264,9 @@ public class decileTreeBuilder {
                     updatedWeightsCVR += ",";
                 }
                 updatedWeightsCVR = updatedWeightsCVR.substring(0, updatedWeightsCVR.length()-1);
-                if(src.equals("CVR"))
-                    rootnode.attribs.put("CTR_CVR_DECILE_WEIGHT",updatedWeightsCVR);
+                System.out.println("the updated cvr string: "+updatedWeightsCVR);
+                if(rootnode.attribs.containsKey("CVR_DECILE_WEIGHT"))
+                    rootnode.attribs.put("CVR_DECILE_WEIGHT",updatedWeightsCVR);
             }
             if(wts_ctr!=null){
                 String[] weights_ctr = wts_ctr.split(",");
@@ -247,13 +281,22 @@ public class decileTreeBuilder {
                     updatedWeightsCTR += ",";
                 }
                 updatedWeightsCTR = updatedWeightsCTR.substring(0, updatedWeightsCTR.length()-1);
-                if(src.equals("CTR"))
-                    rootnode.attribs.put("CTR_CVR_DECILE_WEIGHT",updatedWeightsCTR);
+                System.out.println("the updated ctr string: "+updatedWeightsCTR);
+                if(rootnode.attribs.containsKey("CTR_DECILE_WEIGHT"))
+                    rootnode.attribs.put("CYR_DECILE_WEIGHT",updatedWeightsCTR);
             }
-            if(src.equalsIgnoreCase("CTR_CVR"))
+            if(rootnode.attribs.containsKey("CTR_CVR_DECILE_WEIGHT"))
             {
                 String updatedWeights = updatedWeightsCTR+"_"+updatedWeightsCVR;
+                System.out.println("Updated ctr cvr : "+updatedWeights);
                 rootnode.attribs.put("CTR_CVR_DECILE_WEIGHT", updatedWeights);
+            }
+        }
+        else
+        {
+            for(TreeNode child : rootnode.children)
+            {
+                updateWeights(child);
             }
         }
     }
@@ -295,7 +338,6 @@ public class decileTreeBuilder {
         }  
         for(TreeNode child : rootnode.children){
             printUtil(child, path, len);  
-            printUtil(child, path, len);
         }
     }
 
@@ -316,7 +358,7 @@ public class decileTreeBuilder {
                 partsub+="=";
                 partsub+=e.getValue();
                 try {
-                    System.out.println(partsub);
+                    //System.out.println(partsub);
                     outwriter.write(partsub);
                 } catch (IOException e1) {
                     System.out.println("[EXCEPTION]Problems writing to the output file");
